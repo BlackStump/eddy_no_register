@@ -63,28 +63,24 @@ class EddyNoRegister:
             logging.info(
                 "eddy_no_register: pin chip clear failed: %s" % (e,))
 
-        self.printer.register_event_handler(
-            "klippy:connect", self._handle_connect)
-
-    def _handle_connect(self):
-        probe = self.printer.lookup_object("probe", default=None)
-        if probe is None:
+        # probe_eddy_current also registers itself as the 'probe' printer
+        # object via add_object. tool_probe will also try to add_object
+        # with the same name — duplicate error results.
+        # Evict it here at config load time before tool_probe loads.
+        objects = self.printer.objects
+        probe_obj = objects.get("probe", None)
+        if probe_obj is not None:
+            probe_class = type(probe_obj).__name__
+            if probe_class in EDDY_CLASS_NAMES:
+                del objects["probe"]
+                logging.info(
+                    "eddy_no_register: cleared 'probe' object at config "
+                    "load — tool_probe can register as probe")
+            else:
+                logging.info(
+                    "eddy_no_register: 'probe' object is '%s', not an eddy "
+                    "probe — leaving it" % (probe_class,))
+        else:
             logging.info(
-                "eddy_no_register: no 'probe' object found at connect "
-                "— nothing to remove")
-            return
-
-        probe_class = type(probe).__name__
-        if probe_class not in EDDY_CLASS_NAMES:
-            logging.info(
-                "eddy_no_register: 'probe' is held by '%s', not an eddy "
-                "probe — leaving it registered" % (probe_class,))
-            return
-
-        # Remove the eddy probe from the global slot.
-        # printer.objects is a plain OrderedDict — direct pop is safe here.
-        # No hardware communication has happened yet at klippy:connect.
-        del self.printer.objects["probe"]
-        logging.info(
-            "eddy_no_register: removed '%s' from global probe slot — "
-            "tool_probe can now register as probe" % (probe_class,))
+                "eddy_no_register: no 'probe' object at config load "
+                "— nothing to clear")
