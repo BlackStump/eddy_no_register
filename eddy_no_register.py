@@ -24,6 +24,35 @@ def load_config(config):
 class EddyNoRegister:
     def __init__(self, config):
         self.printer = config.get_printer()
+
+        # Deregister Z_OFFSET_APPLY_PROBE immediately at config load time
+        # before other modules try to register it again. probe_eddy_current
+        # registers it in its own __init__ which runs before klippy:connect.
+        gcode = self.printer.lookup_object("gcode")
+        try:
+            gcode.register_command("Z_OFFSET_APPLY_PROBE", None)
+            logging.info(
+                "eddy_no_register: cleared Z_OFFSET_APPLY_PROBE at config "
+                "load — tool_probe_endstop can register it cleanly")
+        except Exception:
+            pass  # not yet registered — nothing to clear
+
+        # probe_eddy_current imports probe.py which registers a 'probe' pin
+        # chip via pins.register_chip('probe', self). tool_probe_endstop also
+        # tries to register the same chip name — duplicate error results.
+        # Evict it here so tool_probe_endstop can register cleanly.
+        pins = self.printer.lookup_object("pins")
+        try:
+            if "probe" in pins.chips:
+                del pins.chips["probe"]
+                del pins.pin_resolvers["probe"]
+                logging.info(
+                    "eddy_no_register: cleared 'probe' pin chip — "
+                    "tool_probe_endstop can register it cleanly")
+        except Exception as e:
+            logging.info(
+                "eddy_no_register: pin chip clear failed: %s" % (e,))
+
         self.printer.register_event_handler(
             "klippy:connect", self._handle_connect)
 
@@ -49,15 +78,3 @@ class EddyNoRegister:
         logging.info(
             "eddy_no_register: removed '%s' from global probe slot — "
             "tool_probe can now register as probe" % (probe_class,))
-
-        # probe_eddy_current registers Z_OFFSET_APPLY_PROBE in its __init__
-        # (before our eviction runs). probe.py also tries to register it
-        # when it sees itself as the global probe object. Deregister it now
-        # so tool_probe_endstop can register it cleanly.
-        # register_command(cmd, None) is the documented Klipper way to remove
-        # a gcode command — deletes from both ready and base handler dicts.
-        gcode = self.printer.lookup_object("gcode")
-        gcode.register_command("Z_OFFSET_APPLY_PROBE", None)
-        logging.info(
-            "eddy_no_register: unregistered Z_OFFSET_APPLY_PROBE — "
-            "tool_probe_endstop can now register it")
