@@ -12,7 +12,7 @@ set -e
 
 REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 KLIPPER_EXTRAS="${HOME}/klipper/klippy/extras"
-EXTRA_SRC="${REPO_DIR}/klipper/extras/eddy_no_register.py"
+EXTRA_SRC="${REPO_DIR}/eddy_no_register.py"
 EXTRA_DST="${KLIPPER_EXTRAS}/eddy_no_register.py"
 
 echo "=== eddy_no_register installer ==="
