@@ -20,7 +20,8 @@
 import logging
 
 EDDY_CLASS_NAMES = (
-    "EddyCurrentProbe",   # probe_eddy_current.py class name in mainline Klipper
+    "EddyCurrentProbe",    # older mainline
+    "PrinterEddyProbe",    # current mainline
 )
 
 def load_config(config):
