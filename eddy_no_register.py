@@ -20,8 +20,7 @@
 import logging
 
 EDDY_CLASS_NAMES = (
-    "EddyCurrentProbe",    # older mainline
-    "PrinterEddyProbe",    # current mainline
+    "EddyCurrentProbe",   # probe_eddy_current.py class name in mainline Klipper
 )
 
 def load_config(config):
@@ -63,3 +62,15 @@ class EddyNoRegister:
         logging.info(
             "eddy_no_register: removed '%s' from global probe slot — "
             "tool_probe can now register as probe" % (probe_class,))
+
+        # probe_eddy_current registers Z_OFFSET_APPLY_PROBE in its __init__
+        # (before our eviction runs). probe.py also tries to register it
+        # when it sees itself as the global probe object. Deregister it now
+        # so tool_probe_endstop can register it cleanly.
+        # register_command(cmd, None) is the documented Klipper way to remove
+        # a gcode command — deletes from both ready and base handler dicts.
+        gcode = self.printer.lookup_object("gcode")
+        gcode.register_command("Z_OFFSET_APPLY_PROBE", None)
+        logging.info(
+            "eddy_no_register: unregistered Z_OFFSET_APPLY_PROBE — "
+            "tool_probe_endstop can now register it")
