@@ -1,4 +1,4 @@
-# eddy_no_register
+# eddy_no_register UNTESTED
 
 A minimal Klipper extra that prevents `[probe_eddy_current]` from registering
 as the global Klipper probe object at startup.
