@@ -18,6 +18,17 @@ EDDY_CLASS_NAMES = (
     "PrinterEddyProbe",    # current mainline Klipper
 )
 
+# All gcode commands registered by probe.py that conflict with tool_probe.
+# probe_eddy_current imports probe.py, so these get registered at config
+# load time before tool_probe_endstop can register its own versions.
+PROBE_GCODE_COMMANDS = (
+    "QUERY_PROBE",
+    "PROBE",
+    "PROBE_CALIBRATE",
+    "PROBE_ACCURACY",
+    "Z_OFFSET_APPLY_PROBE",
+)
+
 def load_config(config):
     return EddyNoRegister(config)
 
@@ -25,17 +36,16 @@ class EddyNoRegister:
     def __init__(self, config):
         self.printer = config.get_printer()
 
-        # Deregister Z_OFFSET_APPLY_PROBE immediately at config load time
-        # before other modules try to register it again. probe_eddy_current
-        # registers it in its own __init__ which runs before klippy:connect.
+        # Clear all probe.py gcode commands at config load time so
+        # tool_probe_endstop can register its own versions cleanly.
         gcode = self.printer.lookup_object("gcode")
-        try:
-            gcode.register_command("Z_OFFSET_APPLY_PROBE", None)
-            logging.info(
-                "eddy_no_register: cleared Z_OFFSET_APPLY_PROBE at config "
-                "load — tool_probe_endstop can register it cleanly")
-        except Exception:
-            pass  # not yet registered — nothing to clear
+        for cmd in PROBE_GCODE_COMMANDS:
+            try:
+                gcode.register_command(cmd, None)
+                logging.info(
+                    "eddy_no_register: cleared gcode command %s" % (cmd,))
+            except Exception:
+                pass  # not yet registered — nothing to clear
 
         # probe_eddy_current imports probe.py which registers a 'probe' pin
         # chip via pins.register_chip('probe', self). tool_probe_endstop also
