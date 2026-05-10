@@ -63,24 +63,26 @@ class EddyNoRegister:
             logging.info(
                 "eddy_no_register: pin chip clear failed: %s" % (e,))
 
-        # probe_eddy_current also registers itself as the 'probe' printer
-        # object via add_object. tool_probe will also try to add_object
-        # with the same name — duplicate error results.
-        # Evict it here at config load time before tool_probe loads.
-        objects = self.printer.objects
-        probe_obj = objects.get("probe", None)
-        if probe_obj is not None:
-            probe_class = type(probe_obj).__name__
-            if probe_class in EDDY_CLASS_NAMES:
-                del objects["probe"]
-                logging.info(
-                    "eddy_no_register: cleared 'probe' object at config "
-                    "load — tool_probe can register as probe")
-            else:
-                logging.info(
-                    "eddy_no_register: 'probe' object is '%s', not an eddy "
-                    "probe — leaving it" % (probe_class,))
-        else:
-            logging.info(
-                "eddy_no_register: no 'probe' object at config load "
-                "— nothing to clear")
+        # probe_eddy_current calls printer.add_object('probe', self) in its
+        # __init__ AFTER tool_probe_endstop has already claimed the slot.
+        # Monkey-patch add_object to silently drop any attempt to register
+        # 'probe' if the slot is already taken by a non-eddy object.
+        # The patch is permanent but harmless — it only suppresses duplicates
+        # for the 'probe' key from eddy class instances.
+        original_add_object = self.printer.__class__.add_object
+
+        def patched_add_object(printer_self, name, obj):
+            if name == "probe" and name in printer_self.objects:
+                existing_class = type(printer_self.objects[name]).__name__
+                new_class = type(obj).__name__
+                if new_class in EDDY_CLASS_NAMES:
+                    logging.info(
+                        "eddy_no_register: suppressed add_object('probe') "
+                        "from '%s' — slot already held by '%s'"
+                        % (new_class, existing_class))
+                    return
+            original_add_object(printer_self, name, obj)
+
+        self.printer.__class__.add_object = patched_add_object
+        logging.info(
+            "eddy_no_register: installed add_object patch for 'probe'")
