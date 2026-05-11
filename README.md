@@ -10,7 +10,7 @@ BTT Eddy Duo or similar eddy current probe handles bed mesh and QGL.
 ## The Problem
 
 Klipper only allows one global `probe` object. On a toolchanger using
-[klipper-toolchanger](https://github.com/viesturz/klipper-toolchanger):
+[klipper-toolchanger](https://github.com/jwellman80/klipper-toolchanger-easy):
 
 - `[tool_probe]` needs to own the global `probe` slot for per-tool Z homing
 - `[probe_eddy_current]` also tries to claim the global `probe` slot
@@ -61,7 +61,7 @@ mainline Klipper's `master` clean and making future rebases straightforward.
 ## Requirements
 
 - Klipper (mainline)
-- [klipper-toolchanger](https://github.com/viesturz/klipper-toolchanger)
+- [klipper-toolchanger](https://github.com/jwellman80/klipper-toolchanger-easy)
 - BTT Eddy Duo (CAN or USB) or similar `[probe_eddy_current]` probe
 - Per-tool probe (e.g. Opto-tap) configured via `[tool_probe]`
 
