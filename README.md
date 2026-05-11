@@ -261,3 +261,7 @@ fix automatically.
 ## License
 
 GNU GPLv3 — same as Klipper.
+
+## Troubleshooting
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for diagnostic commands and common error fixes.
