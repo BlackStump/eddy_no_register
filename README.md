@@ -262,6 +262,10 @@ fix automatically.
 
 GNU GPLv3 — same as Klipper.
 
+## KTC-easy Integration
+
+If using [klipper-toolchanger-easy](https://github.com/jwellman80/klipper-toolchanger-easy), see [KTC_EASY_INTEGRATION.md](KTC_Easy_Integration.md) for required macro overrides and configuration differences. 
+
 ## Troubleshooting
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for diagnostic commands and common error fixes.
