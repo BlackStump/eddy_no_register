@@ -131,20 +131,18 @@ apply_klipper_patches() {
         fi
     done
 
-    # Check if already patched
+    # ── Patch probe.py ────────────────────────────────────────────────
     if is_patched "${probe_py}" "self.probe_name = 'probe'"; then
         warn "probe.py appears already patched — skipping"
     else
         info "Patching probe.py..."
         python3 << EOF
-import re
-
 with open('${probe_py}', 'r') as f:
     content = f.read()
 
 # 1. Add self.probe_name = 'probe' at end of ProbePointsHelper.__init__
-#    Find the specific manual_results line in __init__ (not in start_probe)
-#    We identify __init__ context by finding the pattern before minimum_points
+#    Identified by the pattern before minimum_points to avoid matching
+#    the same line in start_probe
 old = "        self.manual_results = []\n    def minimum_points"
 new = "        self.manual_results = []\n        self.probe_name = 'probe'\n    def minimum_points"
 if old not in content:
@@ -166,7 +164,7 @@ EOF
         success "probe.py patched and verified"
     fi
 
-    # Patch quad_gantry_level.py
+    # ── Patch quad_gantry_level.py ────────────────────────────────────
     if is_patched "${qgl_py}" "_probe_name = config.get('probe'"; then
         warn "quad_gantry_level.py appears already patched — skipping"
     else
@@ -190,34 +188,75 @@ EOF
         success "quad_gantry_level.py patched and verified"
     fi
 
-    # Patch bed_mesh.py
-    if is_patched "${bed_mesh_py}" "_probe_name = config.get('probe'"; then
-        warn "bed_mesh.py appears already patched — skipping"
+    # ── Patch bed_mesh.py (ProbePointsHelper + RapidScanHelper) ──────
+    # Two separate patches — check each independently
+    local bed_mesh_probe_patched=false
+    local bed_mesh_rapid_patched=false
+
+    is_patched "${bed_mesh_py}" "_probe_name = config.get('probe'" && bed_mesh_probe_patched=true
+    is_patched "${bed_mesh_py}" "rapid_scan_helper.probe_name = self.probe_helper.probe_name" && bed_mesh_rapid_patched=true
+
+    if $bed_mesh_probe_patched && $bed_mesh_rapid_patched; then
+        warn "bed_mesh.py appears already patched (both patches) — skipping"
     else
         info "Patching bed_mesh.py..."
         python3 << EOF
 with open('${bed_mesh_py}', 'r') as f:
-    content = f.read()
+    lines = f.readlines()
+    content = ''.join(lines)
 
-# 1. Add probe_name before ProbePointsHelper instantiation
-old = "        self.probe_helper = probe.ProbePointsHelper(config, finalize_cb, [])\n        self.probe_helper.use_xy_offsets(True)"
-new = "        _probe_name = config.get('probe', 'probe')\n        self.probe_helper = probe.ProbePointsHelper(config, finalize_cb, [])\n        self.probe_helper.probe_name = _probe_name\n        self.probe_helper.use_xy_offsets(True)"
+# ── Patch 1: ProbePointsHelper named probe ────────────────────────────
+probe_patch_marker = "_probe_name = config.get('probe'"
+if probe_patch_marker not in content:
+    old = "        self.probe_helper = probe.ProbePointsHelper(config, finalize_cb, [])\n        self.probe_helper.use_xy_offsets(True)"
+    new = "        _probe_name = config.get('probe', 'probe')\n        self.probe_helper = probe.ProbePointsHelper(config, finalize_cb, [])\n        self.probe_helper.probe_name = _probe_name\n        self.probe_helper.use_xy_offsets(True)"
+    if old not in content:
+        raise Exception("bed_mesh.py: Could not find ProbePointsHelper marker")
+    content = content.replace(old, new)
 
-if old not in content:
-    raise Exception("bed_mesh.py: Could not find ProbePointsHelper marker")
-content = content.replace(old, new)
+    old2 = '        pprobe = self.printer.lookup_object("probe", None)\n        if pprobe is not None:\n            probe_name = pprobe.get_status(None).get("name", "")\n            can_scan = probe_name.startswith("probe_eddy_current")'
+    new2 = '        pprobe = self.printer.lookup_object(self.probe_helper.probe_name, None)\n        if pprobe is not None:\n            probe_name = pprobe.get_status(None).get("name", "")\n            can_scan = probe_name.startswith("probe_eddy_current")'
+    if old2 not in content:
+        raise Exception("bed_mesh.py: Could not find start_probe lookup marker")
+    content = content.replace(old2, new2)
+    print("bed_mesh.py ProbePointsHelper patch applied")
+else:
+    print("bed_mesh.py ProbePointsHelper patch already present — skipping")
 
-# 2. Use probe_helper.probe_name in start_probe scan detection
-old2 = '        pprobe = self.printer.lookup_object("probe", None)\n        if pprobe is not None:\n            probe_name = pprobe.get_status(None).get("name", "")\n            can_scan = probe_name.startswith("probe_eddy_current")'
-new2 = '        pprobe = self.printer.lookup_object(self.probe_helper.probe_name, None)\n        if pprobe is not None:\n            probe_name = pprobe.get_status(None).get("name", "")\n            can_scan = probe_name.startswith("probe_eddy_current")'
+# ── Patch 2: RapidScanHelper named probe ─────────────────────────────
+rapid_patch_marker = "rapid_scan_helper.probe_name = self.probe_helper.probe_name"
+if rapid_patch_marker not in content:
+    lines = content.splitlines(keepends=True)
+    out = []
+    rapid_scan_init_done = False
+    rapid_scan_inst_done = False
 
-if old2 not in content:
-    raise Exception("bed_mesh.py: Could not find start_probe lookup marker")
-content = content.replace(old2, new2)
+    for i, line in enumerate(lines):
+        out.append(line)
+        # Add probe_name to RapidScanHelper.__init__ after finalize_callback
+        if not rapid_scan_init_done and 'self.finalize_callback = finalize_cb' in line:
+            next_line = lines[i+1] if i+1 < len(lines) else ''
+            if 'perform_rapid_scan' in next_line:
+                out.append("        self.probe_name = 'probe'\n")
+                rapid_scan_init_done = True
+        # Set probe_name on rapid_scan_helper after instantiation
+        if not rapid_scan_inst_done and 'self.rapid_scan_helper = RapidScanHelper' in line:
+            out.append("        self.rapid_scan_helper.probe_name = self.probe_helper.probe_name\n")
+            rapid_scan_inst_done = True
+
+    content = ''.join(out)
+
+    # Replace hardcoded lookup_object("probe") calls in RapidScanHelper
+    content = content.replace(
+        'pprobe = self.printer.lookup_object("probe")',
+        'pprobe = self.printer.lookup_object(self.probe_name)'
+    )
+    print("bed_mesh.py RapidScanHelper patch applied")
+else:
+    print("bed_mesh.py RapidScanHelper patch already present — skipping")
 
 with open('${bed_mesh_py}', 'w') as f:
     f.write(content)
-print("bed_mesh.py patched")
 EOF
         python3 -m py_compile "${bed_mesh_py}" || { error "bed_mesh.py syntax error after patch"; exit 1; }
         success "bed_mesh.py patched and verified"
@@ -267,13 +306,19 @@ commit_klipper_patches() {
         return
     fi
 
-    git commit -m "Add named probe support for ProbePointsHelper, bed_mesh, quad_gantry_level
+    git commit -m "Add named probe support for ProbePointsHelper, RapidScanHelper, bed_mesh, quad_gantry_level
 
 Allows [bed_mesh] and [quad_gantry_level] to specify a named probe via
 'probe: <name>' config directive, defaulting to 'probe' for backwards
 compatibility. Enables toolchanger setups to use a scan probe (e.g.
 probe_eddy_current) for mesh and QGL while a separate probe (e.g.
 tool_probe) owns the global probe slot for Z homing.
+
+Patches applied:
+- probe.py: ProbePointsHelper.probe_name for named probe lookup
+- quad_gantry_level.py: reads 'probe:' config directive
+- bed_mesh.py: ProbePointsHelper named probe + RapidScanHelper named
+  probe (fixes bed mesh scan using global probe instead of named probe)
 
 Installed by eddy_no_register installer."
 
@@ -315,7 +360,7 @@ push_to_github() {
     info "(GitHub → Settings → Developer Settings → Personal Access Tokens)"
     echo ""
 
-    if git push "${remote_name}" "${BRANCH_NAME}"; then
+    if git push "${remote_name}" "${BRANCH_NAME}" --force-with-lease; then
         success "Pushed to ${remote_name}/${BRANCH_NAME}"
         echo ""
         warn "Remember to update moonraker.conf [update_manager klipper]:"
