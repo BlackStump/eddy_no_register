@@ -2,6 +2,49 @@
 
 A shameless use of Claude AI
 
+## ⚠️ Important: Pending Klipper Change
+
+[Klipper PR #7268](https://github.com/Klipper3d/klipper/pull/7268) by Kevin O'Connor
+(submitted May 2026, pending merge) significantly refactors Z homing with probe types
+including `probe_eddy_current`.
+
+### What PR #7268 Does
+
+It enables native Z homing via `probe:z_virtual_endstop` for `probe_eddy_current` —
+removing the need for the `PROBE` + `SET_KINEMATIC_POSITION` hack that KTC-easy's
+`_ADJUST_Z_HOME_FOR_TOOL_OFFSET` macro implements.
+
+### Impact on This Repo
+
+**If PR #7268 merges, a simpler architecture becomes possible:**
+
+- **Eddy** → global `[probe]` → Z homing via `probe:z_virtual_endstop` (works natively)
+- **Eddy** → QGL and bed mesh (same probe, no named probe routing needed)
+- **Opto-tap** → pure tool detection only (simple button/endstop config)
+
+In that scenario `eddy_no_register` and the `toolchanger-multi-probe` Klipper patches
+may be unnecessary.
+
+### What to Do
+
+**Before installing:** Check whether PR #7268 has merged:
+
+```bash
+cd ~/klipper
+git log --oneline | grep -i "eddy\|homing\|virtual_endstop" | head -5
+```
+
+**If merged:** Consider the simpler architecture above before installing this repo.
+
+**If not yet merged:** This repo is the recommended approach.
+
+### This Repo Remains Useful If
+
+Even after PR #7268 merges, this repo remains relevant if:
+- You want Opto-tap for Z homing and Eddy only for mesh/QGL
+- You are running KTC-easy and need the `SET_ACTIVE_TOOL_PROBE` fix
+- Your toolchanger has specific requirements benefiting from per-tool probe routing
+
 A Klipper extra and installer that enables **dual probe support** for toolchanger
 setups — specifically allowing a per-tool probe (e.g. Opto-tap via
 `[tool_probe]`) to own the global Klipper probe slot for Z homing, while a
