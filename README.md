@@ -179,9 +179,9 @@ fan: T0_partfan
 # detection_pin: ^toolhead0:OPTO_TAP_PIN  # optional, see notes
 
 [tool_probe T0]
-pin: ^toolhead0:OPTO_TAP_PIN
+pin: ^toolhead0:OPTO_TAP_PIN #place holder change to your own configure pin
 tool: 0
-z_offset: -0.95
+z_offset: -0.08 #change to suit your situation
 speed: 5.0
 samples: 3
 samples_result: median
