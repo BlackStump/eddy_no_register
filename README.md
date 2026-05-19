@@ -1,4 +1,4 @@
-# eddy_no_register
+# eddy_no_register WIP not working after adding more toolheads
 
 A shameless use of Claude AI
 
