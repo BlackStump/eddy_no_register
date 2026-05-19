@@ -6,27 +6,16 @@
 # (e.g. Opto-tap) while the Eddy is used separately for QGL and mesh.
 #
 # Usage — add to printer.cfg:
-#   [eddy_no_register]
+# [eddy_no_register]
 #
-# Copyright (C) 2025  BlackStump
+# Copyright (C) 2025 BlackStump
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
 import logging
 
 EDDY_CLASS_NAMES = (
-    "EddyCurrentProbe",    # older mainline Klipper
-    "PrinterEddyProbe",    # current mainline Klipper
-)
-
-# All gcode commands registered by probe.py that conflict with tool_probe.
-# probe_eddy_current imports probe.py, so these get registered at config
-# load time before tool_probe_endstop can register its own versions.
-PROBE_GCODE_COMMANDS = (
-    "QUERY_PROBE",
-    "PROBE",
-    "PROBE_CALIBRATE",
-    "PROBE_ACCURACY",
-    "Z_OFFSET_APPLY_PROBE",
+    "EddyCurrentProbe",   # older mainline Klipper
+    "PrinterEddyProbe",   # current mainline Klipper
 )
 
 def load_config(config):
@@ -35,54 +24,92 @@ def load_config(config):
 class EddyNoRegister:
     def __init__(self, config):
         self.printer = config.get_printer()
+        # Register at BOTH connect and ready.
+        # connect: evicts Eddy before tool_probe connects (single-tool case)
+        # ready:   re-checks after all tools have resolved (multi-tool case)
+        self.printer.register_event_handler(
+            "klippy:connect", self._handle_connect)
+        self.printer.register_event_handler(
+            "klippy:ready", self._handle_ready)
 
-        # Clear all probe.py gcode commands at config load time so
-        # tool_probe_endstop can register its own versions cleanly.
-        gcode = self.printer.lookup_object("gcode")
-        for cmd in PROBE_GCODE_COMMANDS:
-            try:
-                gcode.register_command(cmd, None)
-                logging.info(
-                    "eddy_no_register: cleared gcode command %s" % (cmd,))
-            except Exception:
-                pass  # not yet registered — nothing to clear
-
-        # probe_eddy_current imports probe.py which registers a 'probe' pin
-        # chip via pins.register_chip('probe', self). tool_probe_endstop also
-        # tries to register the same chip name — duplicate error results.
-        # Evict it here so tool_probe_endstop can register cleanly.
-        pins = self.printer.lookup_object("pins")
-        try:
-            if "probe" in pins.chips:
-                del pins.chips["probe"]
-                del pins.pin_resolvers["probe"]
-                logging.info(
-                    "eddy_no_register: cleared 'probe' pin chip — "
-                    "tool_probe_endstop can register it cleanly")
-        except Exception as e:
+    def _evict_eddy(self, phase):
+        probe = self.printer.lookup_object("probe", default=None)
+        if probe is None:
             logging.info(
-                "eddy_no_register: pin chip clear failed: %s" % (e,))
+                "eddy_no_register [%s]: no 'probe' object found "
+                "— nothing to remove" % phase)
+            return False
 
-        # probe_eddy_current calls printer.add_object('probe', self) in its
-        # __init__ AFTER tool_probe_endstop has already claimed the slot.
-        # Monkey-patch add_object to silently drop any attempt to register
-        # 'probe' if the slot is already taken by a non-eddy object.
-        # The patch is permanent but harmless — it only suppresses duplicates
-        # for the 'probe' key from eddy class instances.
-        original_add_object = self.printer.__class__.add_object
+        probe_class = type(probe).__name__
+        if probe_class not in EDDY_CLASS_NAMES:
+            logging.info(
+                "eddy_no_register [%s]: 'probe' is held by '%s', not an eddy "
+                "probe — leaving it registered" % (phase, probe_class))
+            return False
 
-        def patched_add_object(printer_self, name, obj):
-            if name == "probe" and name in printer_self.objects:
-                existing_class = type(printer_self.objects[name]).__name__
-                new_class = type(obj).__name__
-                if new_class in EDDY_CLASS_NAMES:
-                    logging.info(
-                        "eddy_no_register: suppressed add_object('probe') "
-                        "from '%s' — slot already held by '%s'"
-                        % (new_class, existing_class))
-                    return
-            original_add_object(printer_self, name, obj)
-
-        self.printer.__class__.add_object = patched_add_object
+        del self.printer.objects["probe"]
         logging.info(
-            "eddy_no_register: installed add_object patch for 'probe'")
+            "eddy_no_register [%s]: removed '%s' from global probe slot — "
+            "tool_probe can now register as probe" % (phase, probe_class))
+
+        gcode = self.printer.lookup_object("gcode")
+        try:
+            gcode.register_command("Z_OFFSET_APPLY_PROBE", None)
+            logging.info(
+                "eddy_no_register [%s]: unregistered Z_OFFSET_APPLY_PROBE"
+                % phase)
+        except Exception:
+            pass  # may already be gone or not registered yet
+
+        return True
+
+    def _handle_connect(self):
+        self._evict_eddy("connect")
+
+    def _handle_ready(self):
+        # At klippy:ready, all tools have resolved their active probe.
+        # If Eddy somehow re-claimed the slot, evict it again.
+        evicted = self._evict_eddy("ready")
+        if evicted:
+            # After ready, tool_probe won't re-register itself automatically.
+            # We need to find the active tool's tool_probe and install it.
+            self._install_active_tool_probe()
+
+    def _install_active_tool_probe(self):
+        # Ask toolchanger for the active tool, then register its tool_probe
+        # as the global probe object so homing works correctly.
+        toolchanger = self.printer.lookup_object("toolchanger", default=None)
+        if toolchanger is None:
+            logging.info(
+                "eddy_no_register: no toolchanger found, "
+                "cannot restore tool_probe after ready-phase eviction")
+            return
+
+        active_tool = None
+        try:
+            active_tool = toolchanger.get_selected_tool()
+        except Exception:
+            pass
+
+        if active_tool is None:
+            # No tool selected — try T0 as fallback
+            active_tool = self.printer.lookup_object("tool 0", default=None)
+
+        if active_tool is None:
+            logging.info(
+                "eddy_no_register: no active tool found at ready phase")
+            return
+
+        tool_probe_name = "tool_probe %s" % (
+            getattr(active_tool, 'tool_number', 0),)
+        tool_probe = self.printer.lookup_object(tool_probe_name, default=None)
+
+        if tool_probe is None:
+            logging.info(
+                "eddy_no_register: could not find '%s'" % tool_probe_name)
+            return
+
+        self.printer.objects["probe"] = tool_probe
+        logging.info(
+            "eddy_no_register [ready]: installed '%s' as global probe"
+            % tool_probe_name)
