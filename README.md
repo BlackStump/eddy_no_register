@@ -36,9 +36,9 @@ git log --oneline | grep -i "eddy\|homing\|virtual_endstop" | head -5
 
 **If merged:** Consider the simpler architecture above before installing this repo.
 
-**If not yet merged:** This repo is the recommended approach.
+**If not yet merged:** This repo is NOT the recommended approach.
 
-### This Repo Remains Useful If
+### This Repo Will Not Be Useful 
 
 Even after PR #7268 merges, this repo remains relevant if:
 - You want Opto-tap for Z homing and Eddy only for mesh/QGL
@@ -50,7 +50,7 @@ setups — specifically allowing a per-tool probe (e.g. Opto-tap via
 `[tool_probe]`) to own the global Klipper probe slot for Z homing, while a
 BTT Eddy Duo or similar eddy current probe handles bed mesh and QGL.
 
-## The Problem
+## The Problem Is Klipper does not support multiple probes end of story.
 
 Klipper only allows one global `probe` object. On a toolchanger using
 [klipper-toolchanger](https://github.com/jwellman80/klipper-toolchanger-easy):
