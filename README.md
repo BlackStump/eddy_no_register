@@ -1,4 +1,4 @@
-# eddy_no_register WIP not working after adding more toolheads
+# eddy_no_register is a failed venture too many patches required to klipper, becomes to fragile
 
 A shameless use of Claude AI
 
